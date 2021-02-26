@@ -1,11 +1,11 @@
 import { basename, join, sep } from 'path';
 import { tmpdir } from 'os';
-import { constants, copyFileSync, mkdtempSync, statSync } from 'fs';
+import { constants, copyFileSync, existsSync, mkdtempSync, statSync } from 'fs';
 
 import { buildDevStandalone } from '@storybook/core/server';
 
 import { getStorybookFrameworkPath, setStorybookAppProject } from '../utils';
-import { ExecutorContext, logger } from '@nrwl/devkit';
+import { ExecutorContext, joinPathFragments, logger } from '@nrwl/devkit';
 
 export interface StorybookConfig {
   configFolder?: string;
@@ -41,6 +41,10 @@ export default async function* storybookExecutor(
 
   const frameworkOptions = (await import(frameworkPath)).default;
   const option = storybookOptionMapper(options, frameworkOptions, context);
+
+  // print warnings
+  runStorybookSetupCheck(options, context);
+
   await runInstance(option);
 
   yield { success: true };
@@ -162,4 +166,42 @@ function createStorybookConfig(
     constants.COPYFILE_EXCL
   );
   return tmpFolder;
+}
+
+function runStorybookSetupCheck(
+  options: StorybookExecutorOptions,
+  context: ExecutorContext
+) {
+  const placesToCheck = [
+    {
+      path: joinPathFragments(context.root, '.storybook', 'webpack.config.js'),
+      result: false,
+    },
+    {
+      path: joinPathFragments(options.config.configFolder, 'webpack.config.js'),
+      result: false,
+    },
+  ];
+
+  placesToCheck
+    .map((entry) => {
+      return {
+        ...entry,
+        result: existsSync(
+          joinPathFragments(context.root, '.storybook', 'webpack.config.js')
+        ),
+      };
+    })
+    .filter((x) => x.result);
+
+  if (placesToCheck.length > 0) {
+    logger.warn(
+      `
+      You have a webpack.config.js files in your Storybook configuration:
+      ${placesToCheck.map((x) => `- "${x.path}"`).join('\n')}
+
+      Consider switching to the "webpackFinal" property declared in "main.js" instead.
+    `
+    );
+  }
 }
